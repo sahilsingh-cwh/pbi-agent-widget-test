@@ -1,0 +1,36 @@
+# Terraform
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+
+# Python
+__pycache__/
+*.py[cod]
+*.venv/
+.venv/
+
+# Node / Webpack / pbiviz
+app/widget/node_modules/
+app/widget/dist/
+app/widget/.tmp/
+app/widget/webpack.statistics*.html
+*.pbiviz
+
+# GCP / Deployment
+deployment/
+*.key
+service-account-key.json
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log

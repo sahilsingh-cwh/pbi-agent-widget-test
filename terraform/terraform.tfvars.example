@@ -1,0 +1,8 @@
+# Terraform variable values — copy to terraform.tfvars and fill in.
+# DO NOT commit terraform.tfvars to source control.
+
+project_id             = "your-gcp-project-id"
+region                  = "us-central1"
+environment             = "dev"
+api_key                = "CHANGE-ME-USE-A-SECURE-RANDOM-STRING"
+agent_engine_resource  = "projects/PROJECT/locations/us-central1/reasoningEngines/AGENT-ID"

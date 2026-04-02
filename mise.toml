@@ -1,0 +1,13 @@
+[tools]
+node = "20.19.0"
+python = "3.13"
+go = "1.23"
+terraform = "1.10"
+gcloud = "latest"
+
+[python]
+version = "3.13"
+virtualize = true
+
+[node]
+virtualize = true

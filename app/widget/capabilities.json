@@ -1,0 +1,33 @@
+{
+  "dataRoles": [],
+  "dataViewMappings": [],
+  "objects": {
+    "agentSettings": {
+      "displayName": "Agent Configuration",
+      "description": "Configure the Vertex AI Agent backend connection",
+      "properties": {
+        "endpoint": {
+          "displayName": "Agent Endpoint URL",
+          "description": "HTTPS URL of the Cloud Function backend (e.g. https://region-project.cloudfunctions.net/chat)",
+          "type": {
+            "text": true
+          }
+        },
+        "apiKey": {
+          "displayName": "API Key",
+          "description": "Static API key for backend authentication",
+          "type": {
+            "text": true
+          }
+        }
+      }
+    }
+  },
+  "privileges": [
+    {
+      "name": "WebAccess",
+      "essential": true,
+      "parameters": ["https://*"]
+    }
+  ]
+}
