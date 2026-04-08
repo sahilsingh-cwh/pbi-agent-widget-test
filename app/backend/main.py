@@ -134,17 +134,15 @@ def chat(request):
         response = client.stream_query_reasoning_engine(ae_request)
 
         texts: list[str] = []
-        chunk_count = 0
+        debug_chunks: list = []
         for chunk in response:
-            chunk_count += 1
             raw = None
             try:
                 raw = chunk.data.decode("utf-8") if chunk.data else None
             except Exception:
                 raw = str(chunk.data) if chunk.data else None
 
-            # Log every chunk so we can see the actual Agent Engine format
-            logger.info("Chunk #%d raw: %s", chunk_count, raw[:2000] if raw else "<empty>")
+            debug_chunks.append(raw)
 
             if not raw:
                 continue
@@ -161,16 +159,17 @@ def chat(request):
                 # Fallback: maybe it's in "output" key
                 if not parts and "output" in data:
                     texts.append(str(data["output"]))
-            except (json.JSONDecodeError, UnicodeDecodeError, KeyError) as parse_err:
-                logger.warning("Chunk #%d parse error: %s", chunk_count, parse_err)
+            except (json.JSONDecodeError, UnicodeDecodeError, KeyError):
                 continue
 
         full_text = "".join(texts)
-        logger.info(
-            "Agent replied %d chars from %d chunks  session=%s",
-            len(full_text), chunk_count, session_id or "-",
-        )
-        return _cors(json.dumps({"text": full_text}), 200)
+
+        # TEMPORARY DEBUG: return raw chunks so we can see the Agent Engine format
+        return _cors(json.dumps({
+            "text": full_text,
+            "_debug_chunk_count": len(debug_chunks),
+            "_debug_chunks": debug_chunks[:5],
+        }), 200)
 
     except Exception as exc:
         logger.error("Agent Engine error: %s", exc)
