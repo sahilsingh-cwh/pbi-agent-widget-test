@@ -134,9 +134,12 @@ def chat(request):
 
         response = client.stream_query_reasoning_engine(ae_request)
 
-        # TEMPORARY DEBUG: dump raw chunks with the corrected class_method
-        debug_chunks: list = []
-        texts: list[str] = []
+        # Parse SSE chunks from Agent Engine.
+        # The agent streams multiple events (state deltas, tool calls,
+        # routing decisions, model responses).  We only want text from
+        # the *final model response* — identified by having
+        # content.parts[].text AND finish_reason == "STOP".
+        last_model_text: str = ""
         for chunk in response:
             raw = None
             try:
@@ -144,30 +147,44 @@ def chat(request):
             except Exception:
                 raw = str(chunk.data) if chunk.data else None
 
-            debug_chunks.append(raw[:2000] if raw else None)
-
             if not raw:
                 continue
             try:
                 data = json.loads(raw)
-                parts = data.get("content", {}).get("parts", [])
-                for part in parts:
-                    if "text" in part:
-                        texts.append(part["text"])
+
+                # Skip chunks without model content
+                content = data.get("content")
+                if not content or not isinstance(content, dict):
+                    continue
+
+                parts = content.get("parts", [])
+                text_parts = [p["text"] for p in parts if "text" in p]
+                if not text_parts:
+                    continue
+
+                # Check if this looks like a structured JSON routing
+                # decision rather than a natural language answer
+                combined = "".join(text_parts).strip()
+                is_json_block = (
+                    combined.startswith("{") and combined.endswith("}")
+                )
+
+                # If it's a final model response with natural language,
+                # keep it.  If it's JSON-only (routing), skip it.
+                if not is_json_block:
+                    last_model_text = combined
+                elif data.get("finish_reason") == "STOP" and not is_json_block:
+                    last_model_text = combined
+
             except (json.JSONDecodeError, UnicodeDecodeError, KeyError):
                 continue
 
-        full_text = "".join(texts)
-
-        return _cors(json.dumps({
-            "text": full_text,
-            "_debug_chunk_count": len(debug_chunks),
-            "_debug_first_chunks": debug_chunks[:3],
-        }, default=str), 200)
+        logger.info("Agent replied %d chars", len(last_model_text))
+        return _cors(json.dumps({"text": last_model_text}), 200)
 
     except Exception as exc:
         logger.error("Agent Engine error: %s", exc)
         return _cors(
-            json.dumps({"error": f"Agent communication failed: {exc}"}),
+            json.dumps({"error": "Agent communication failed. Please try again."}),
             502,
         )
