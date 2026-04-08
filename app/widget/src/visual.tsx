@@ -29,14 +29,32 @@ function readSettings(dataViews: DataView[] | undefined): AgentSettings {
 }
 
 export class Visual implements IVisual {
-    private root: ReactDOM.Root;
+    private container: HTMLElement;
+    private root: ReactDOM.Root | null = null;
     private host: IVisualHost;
     private settings: AgentSettings = { endpoint: "", apiKey: "" };
 
     constructor(options: VisualConstructorOptions) {
         this.host = options.host;
-        this.root = ReactDOM.createRoot(options.element);
-        this.render();
+        this.container = options.element;
+
+        // Force the container to fill the visual viewport
+        this.container.style.width = "100%";
+        this.container.style.height = "100%";
+        this.container.style.overflow = "auto";
+        this.container.style.position = "relative";
+
+        try {
+            this.root = ReactDOM.createRoot(this.container);
+            this.render();
+        } catch (err) {
+            // If React fails entirely, show a plain HTML fallback so
+            // the user can at least see something in the visual container
+            this.container.innerHTML =
+                '<div style="padding:24px;font-family:Segoe UI,sans-serif">' +
+                '<h3 style="color:red">⚠️ Visual failed to initialise</h3>' +
+                "<p>" + String(err) + "</p></div>";
+        }
     }
 
     /** Called by Power BI whenever the visual or its properties change. */
@@ -68,39 +86,42 @@ export class Visual implements IVisual {
     }
 
     private render(): void {
+        if (!this.root) return;
+
         const isConfigured = !!this.settings.endpoint;
 
-        if (!isConfigured) {
-            // Show config form when endpoint is not set
-            this.root.render(
-                React.createElement(ConfigForm, {
-                    currentEndpoint: this.settings.endpoint,
-                    currentApiKey:   this.settings.apiKey,
-                    onSave: (ep: string, key: string) => this.saveSettings(ep, key),
-                })
-            );
-        } else {
-            // Show chat when configured
-            this.root.render(
-                React.createElement(ChatThread, {
-                    endpoint: this.settings.endpoint,
-                    apiKey:   this.settings.apiKey,
-                    locale:   "en",
-                    onReconfigure: () => this.saveSettings("", ""),
-                })
-            );
+        try {
+            if (!isConfigured) {
+                // Show config form when endpoint is not set
+                this.root.render(
+                    React.createElement(ConfigForm, {
+                        currentEndpoint: this.settings.endpoint,
+                        currentApiKey:   this.settings.apiKey,
+                        onSave: (ep: string, key: string) => this.saveSettings(ep, key),
+                    })
+                );
+            } else {
+                // Show chat when configured
+                this.root.render(
+                    React.createElement(ChatThread, {
+                        endpoint: this.settings.endpoint,
+                        apiKey:   this.settings.apiKey,
+                        locale:   "en",
+                        onReconfigure: () => this.saveSettings("", ""),
+                    })
+                );
+            }
+        } catch (err) {
+            this.container.innerHTML =
+                '<div style="padding:24px;font-family:Segoe UI,sans-serif">' +
+                '<h3 style="color:red">⚠️ Render error</h3>' +
+                "<p>" + String(err) + "</p></div>";
         }
     }
 
     public destroy(): void {
-        this.root.unmount();
+        if (this.root) {
+            this.root.unmount();
+        }
     }
-}
-
-// Fallback registration for the custom webpack UMD build
-const pw = (window as any).powerbi;
-if (pw) {
-    pw.extensibility = pw.extensibility || {};
-    pw.extensibility.visual = pw.extensibility.visual || {};
-    pw.extensibility.visual.Visual = Visual;
 }

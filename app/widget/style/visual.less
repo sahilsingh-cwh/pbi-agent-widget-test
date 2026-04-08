@@ -1,9 +1,22 @@
-// Minimal styles for the Power BI visual canvas
+// Ensure the visual fills the Power BI container.
+// PBI wraps everything in a sandbox div — these rules
+// make sure the React root element expands to fill it.
+
+.visual-sandbox {
+  width: 100%;
+  height: 100%;
+}
+
 .visual {
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  box-sizing: border-box;
+}
+
+// Also target any div directly inside the sandbox (our container)
+div {
   box-sizing: border-box;
 }
