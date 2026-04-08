@@ -133,43 +133,32 @@ def chat(request):
 
         response = client.stream_query_reasoning_engine(ae_request)
 
-        texts: list[str] = []
+        # TEMPORARY DEBUG: dump everything about the chunk objects
         debug_chunks: list = []
         for chunk in response:
-            raw = None
-            try:
-                raw = chunk.data.decode("utf-8") if chunk.data else None
-            except Exception:
-                raw = str(chunk.data) if chunk.data else None
+            chunk_info = {
+                "type": str(type(chunk)),
+                "dir": [a for a in dir(chunk) if not a.startswith("_")],
+                "str": str(chunk)[:2000],
+            }
+            # Try to read common attributes
+            for attr in ["data", "content_type", "extensions", "content", "text", "result", "output", "message"]:
+                try:
+                    val = getattr(chunk, attr, "N/A")
+                    if val and val != "N/A":
+                        if isinstance(val, bytes):
+                            chunk_info[attr] = val.decode("utf-8", errors="replace")
+                        else:
+                            chunk_info[attr] = str(val)[:1000]
+                except Exception as e:
+                    chunk_info[attr] = f"ERROR: {e}"
+            debug_chunks.append(chunk_info)
 
-            debug_chunks.append(raw)
-
-            if not raw:
-                continue
-            try:
-                data = json.loads(raw)
-                # Try the known Gemini format: content.parts[].text
-                parts = data.get("content", {}).get("parts", [])
-                for part in parts:
-                    if "text" in part:
-                        texts.append(part["text"])
-                # Fallback: maybe the text is at top level
-                if not parts and "text" in data:
-                    texts.append(data["text"])
-                # Fallback: maybe it's in "output" key
-                if not parts and "output" in data:
-                    texts.append(str(data["output"]))
-            except (json.JSONDecodeError, UnicodeDecodeError, KeyError):
-                continue
-
-        full_text = "".join(texts)
-
-        # TEMPORARY DEBUG: return raw chunks so we can see the Agent Engine format
         return _cors(json.dumps({
-            "text": full_text,
+            "text": "",
             "_debug_chunk_count": len(debug_chunks),
-            "_debug_chunks": debug_chunks[:5],
-        }), 200)
+            "_debug_chunks": debug_chunks[:3],
+        }, default=str), 200)
 
     except Exception as exc:
         logger.error("Agent Engine error: %s", exc)
