@@ -14,5 +14,5 @@
     "esModuleInterop": true,
     "skipLibCheck": true
   },
-  "files": ["./src/visual.tsx"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
 }
