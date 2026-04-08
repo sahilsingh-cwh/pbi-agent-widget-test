@@ -6,9 +6,6 @@ import { ChatThread } from "./components/ChatThread";
 import IVisual = powerbi.extensibility.visual.IVisual;
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
-import EnumerateVisualObjectInstancesOptions = powerbi.EnumerateVisualObjectInstancesOptions;
-import VisualObjectInstanceEnumeration = powerbi.VisualObjectInstanceEnumeration;
-import VisualObjectInstance = powerbi.VisualObjectInstance;
 import DataView = powerbi.DataView;
 
 /** Settings surfaced in the Power BI Format pane — no secrets in source code. */
@@ -45,24 +42,55 @@ export class Visual implements IVisual {
     }
 
     /**
-     * Populates the Format pane so report authors can configure
-     * backend URL and API key at design time — no rebuild required.
+     * Modern Format pane API (PBI API 5.1+).
+     * Returns a FormattingModel so report authors can configure
+     * backend URL and API key without rebuilding the visual.
      */
-    public enumerateObjectInstances(
-        options: EnumerateVisualObjectInstancesOptions
-    ): VisualObjectInstanceEnumeration {
-        if (options.objectName === "agentSettings") {
-            const inst: VisualObjectInstance = {
-                objectName: "agentSettings",
-                selector: null,
-                properties: {
-                    endpoint: this.settings.endpoint,
-                    apiKey:   this.settings.apiKey,
+    public getFormattingModel(): powerbi.visuals.FormattingModel {
+        return {
+            cards: [
+                {
+                    displayName: "Agent Configuration",
+                    uid: "agentSettings_card",
+                    groups: [
+                        {
+                            displayName: undefined as any,
+                            uid: "agentSettings_group",
+                            slices: [
+                                {
+                                    uid: "agentSettings_endpoint",
+                                    displayName: "Agent Endpoint URL",
+                                    control: {
+                                        type: powerbi.visuals.FormattingComponent.TextInput,
+                                        properties: {
+                                            descriptor: {
+                                                objectName: "agentSettings",
+                                                propertyName: "endpoint",
+                                            },
+                                            value: this.settings.endpoint,
+                                        },
+                                    },
+                                } as any,
+                                {
+                                    uid: "agentSettings_apiKey",
+                                    displayName: "API Key",
+                                    control: {
+                                        type: powerbi.visuals.FormattingComponent.TextInput,
+                                        properties: {
+                                            descriptor: {
+                                                objectName: "agentSettings",
+                                                propertyName: "apiKey",
+                                            },
+                                            value: this.settings.apiKey,
+                                        },
+                                    },
+                                } as any,
+                            ],
+                        },
+                    ],
                 },
-            };
-            return [inst];
-        }
-        return [];
+            ],
+        };
     }
 
     private render(): void {
