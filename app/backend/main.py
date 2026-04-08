@@ -128,41 +128,45 @@ def chat(request):
         ae_request = aiplatform_v1.StreamQueryReasoningEngineRequest(
             name=AGENT_RESOURCE,
             input=agent_input,
-            class_method="stream_query",
+            class_method="async_stream_query",
         )
 
         response = client.stream_query_reasoning_engine(ae_request)
 
-        # TEMPORARY DEBUG: dump everything about the chunk objects
+        # TEMPORARY DEBUG: dump raw chunks with the corrected class_method
         debug_chunks: list = []
+        texts: list[str] = []
         for chunk in response:
-            chunk_info = {
-                "type": str(type(chunk)),
-                "dir": [a for a in dir(chunk) if not a.startswith("_")],
-                "str": str(chunk)[:2000],
-            }
-            # Try to read common attributes
-            for attr in ["data", "content_type", "extensions", "content", "text", "result", "output", "message"]:
-                try:
-                    val = getattr(chunk, attr, "N/A")
-                    if val and val != "N/A":
-                        if isinstance(val, bytes):
-                            chunk_info[attr] = val.decode("utf-8", errors="replace")
-                        else:
-                            chunk_info[attr] = str(val)[:1000]
-                except Exception as e:
-                    chunk_info[attr] = f"ERROR: {e}"
-            debug_chunks.append(chunk_info)
+            raw = None
+            try:
+                raw = chunk.data.decode("utf-8") if chunk.data else None
+            except Exception:
+                raw = str(chunk.data) if chunk.data else None
+
+            debug_chunks.append(raw[:2000] if raw else None)
+
+            if not raw:
+                continue
+            try:
+                data = json.loads(raw)
+                parts = data.get("content", {}).get("parts", [])
+                for part in parts:
+                    if "text" in part:
+                        texts.append(part["text"])
+            except (json.JSONDecodeError, UnicodeDecodeError, KeyError):
+                continue
+
+        full_text = "".join(texts)
 
         return _cors(json.dumps({
-            "text": "",
+            "text": full_text,
             "_debug_chunk_count": len(debug_chunks),
-            "_debug_chunks": debug_chunks[:3],
+            "_debug_first_chunks": debug_chunks[:3],
         }, default=str), 200)
 
     except Exception as exc:
         logger.error("Agent Engine error: %s", exc)
         return _cors(
-            json.dumps({"error": "Agent communication failed. Please try again."}),
+            json.dumps({"error": f"Agent communication failed: {exc}"}),
             502,
         )
