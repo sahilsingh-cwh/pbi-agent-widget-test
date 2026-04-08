@@ -17,6 +17,10 @@ export function ChatThread({ endpoint, apiKey }: ChatThreadProps) {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+  // Stable session ID for multi-turn Agent Engine conversations
+  const sessionIdRef = React.useRef<string>(
+    "pbi-" + Date.now().toString(36) + "-" + Math.random().toString(36).substring(2, 10)
+  );
 
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -39,7 +43,11 @@ export function ChatThread({ endpoint, apiKey }: ChatThreadProps) {
             "Content-Type": "application/json",
             ...(apiKey ? { "X-API-Key": apiKey } : {}),
           },
-          body: JSON.stringify({ message: text, user_id: "pbi-user" }),
+          body: JSON.stringify({
+            message: text,
+            user_id: "pbi-user",
+            session_id: sessionIdRef.current,
+          }),
         });
 
         if (!res.ok) {

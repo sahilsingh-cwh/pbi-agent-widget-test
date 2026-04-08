@@ -11,6 +11,7 @@ module "function-sa" {
     (local.project_id) = [
       "roles/logging.logWriter",
       "roles/aiplatform.user",
+      "roles/secretmanager.secretAccessor",
     ]
   }
 }
@@ -32,8 +33,9 @@ module "function-bucket" {
 }
 
 ###############################################################################
-# Secret Manager — API Key (created but not used by function,
-# which reads the key from ALLOWED_API_KEY env var instead)
+# Secret Manager — API Key
+# The function reads ALLOWED_API_KEY via --set-secrets (gcloud)
+# or secret_environment_variables (Terraform).
 # CFF module: modules/secret-manager
 ###############################################################################
 
@@ -75,7 +77,7 @@ module "cloud-function" {
   service_account_create = false
   environment_variables = {
     AGENT_ENGINE_RESOURCE = var.agent_engine_resource
-    ALLOWED_API_KEY       = var.api_key
+    GCP_REGION            = var.region
   }
   labels = {
     environment = var.environment

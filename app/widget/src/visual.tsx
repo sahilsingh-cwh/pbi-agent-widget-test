@@ -3,29 +3,74 @@ import * as ReactDOM from "react-dom/client";
 import powerbi from "powerbi-visuals-api";
 import { ChatThread } from "./components/ChatThread";
 
-// IMPORTANT: Update these values before building for deployment
-const ENDPOINT = "https://YOUR_REGION-YOUR_PROJECT.cloudfunctions.net/pbi-agent-chat";
-const API_KEY = "YOUR_API_KEY";
+import IVisual = powerbi.extensibility.visual.IVisual;
+import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
+import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
+import EnumerateVisualObjectInstancesOptions = powerbi.EnumerateVisualObjectInstancesOptions;
+import VisualObjectInstanceEnumeration = powerbi.VisualObjectInstanceEnumeration;
+import VisualObjectInstance = powerbi.VisualObjectInstance;
+import DataView = powerbi.DataView;
 
-export class Visual implements powerbi.extensibility.visual.IVisual {
+/** Settings surfaced in the Power BI Format pane — no secrets in source code. */
+interface AgentSettings {
+    endpoint: string;
+    apiKey: string;
+}
+
+/** Safely read agentSettings from the Power BI Format pane (dataView metadata). */
+function readSettings(dataViews: DataView[] | undefined): AgentSettings {
+    const empty: AgentSettings = { endpoint: "", apiKey: "" };
+    const obj = dataViews?.[0]?.metadata?.objects;
+    if (!obj?.agentSettings) return empty;
+    const s = obj.agentSettings as Record<string, unknown>;
+    return {
+        endpoint: typeof s.endpoint === "string" ? s.endpoint : empty.endpoint,
+        apiKey:   typeof s.apiKey   === "string" ? s.apiKey   : empty.apiKey,
+    };
+}
+
+export class Visual implements IVisual {
     private root: ReactDOM.Root;
+    private settings: AgentSettings = { endpoint: "", apiKey: "" };
 
-    constructor(options: powerbi.extensibility.visual.VisualConstructorOptions) {
-        const element = options.element;
-        this.root = ReactDOM.createRoot(element);
+    constructor(options: VisualConstructorOptions) {
+        this.root = ReactDOM.createRoot(options.element);
         this.render();
     }
 
-    public update(options: powerbi.extensibility.visual.VisualUpdateOptions): void {
+    /** Called by Power BI whenever the visual or its properties change. */
+    public update(options: VisualUpdateOptions): void {
+        this.settings = readSettings(options.dataViews);
         this.render();
+    }
+
+    /**
+     * Populates the Format pane so report authors can configure
+     * backend URL and API key at design time — no rebuild required.
+     */
+    public enumerateObjectInstances(
+        options: EnumerateVisualObjectInstancesOptions
+    ): VisualObjectInstanceEnumeration {
+        if (options.objectName === "agentSettings") {
+            const inst: VisualObjectInstance = {
+                objectName: "agentSettings",
+                selector: null,
+                properties: {
+                    endpoint: this.settings.endpoint,
+                    apiKey:   this.settings.apiKey,
+                },
+            };
+            return [inst];
+        }
+        return [];
     }
 
     private render(): void {
         this.root.render(
             React.createElement(ChatThread, {
-                endpoint: ENDPOINT,
-                apiKey: API_KEY,
-                locale: "en",
+                endpoint: this.settings.endpoint,
+                apiKey:   this.settings.apiKey,
+                locale:   "en",
             })
         );
     }
@@ -35,6 +80,7 @@ export class Visual implements powerbi.extensibility.visual.IVisual {
     }
 }
 
+// Fallback registration for the custom webpack UMD build
 const pw = (window as any).powerbi;
 if (pw) {
     pw.extensibility = pw.extensibility || {};

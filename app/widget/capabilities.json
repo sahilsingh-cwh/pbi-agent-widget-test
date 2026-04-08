@@ -27,7 +27,7 @@
     {
       "name": "WebAccess",
       "essential": true,
-      "parameters": ["https://*"]
+      "parameters": ["https://us-central1-cwr-gcp-dev-prj-ai-agent-aus.cloudfunctions.net"]
     }
   ]
 }
