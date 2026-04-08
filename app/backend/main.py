@@ -134,21 +134,41 @@ def chat(request):
         response = client.stream_query_reasoning_engine(ae_request)
 
         texts: list[str] = []
+        chunk_count = 0
         for chunk in response:
-            if not chunk.data:
+            chunk_count += 1
+            raw = None
+            try:
+                raw = chunk.data.decode("utf-8") if chunk.data else None
+            except Exception:
+                raw = str(chunk.data) if chunk.data else None
+
+            # Log every chunk so we can see the actual Agent Engine format
+            logger.info("Chunk #%d raw: %s", chunk_count, raw[:2000] if raw else "<empty>")
+
+            if not raw:
                 continue
             try:
-                data = json.loads(chunk.data.decode("utf-8"))
+                data = json.loads(raw)
+                # Try the known Gemini format: content.parts[].text
                 parts = data.get("content", {}).get("parts", [])
                 for part in parts:
                     if "text" in part:
                         texts.append(part["text"])
-            except (json.JSONDecodeError, UnicodeDecodeError, KeyError):
+                # Fallback: maybe the text is at top level
+                if not parts and "text" in data:
+                    texts.append(data["text"])
+                # Fallback: maybe it's in "output" key
+                if not parts and "output" in data:
+                    texts.append(str(data["output"]))
+            except (json.JSONDecodeError, UnicodeDecodeError, KeyError) as parse_err:
+                logger.warning("Chunk #%d parse error: %s", chunk_count, parse_err)
                 continue
 
         full_text = "".join(texts)
         logger.info(
-            "Agent replied %d chars  session=%s", len(full_text), session_id or "-"
+            "Agent replied %d chars from %d chunks  session=%s",
+            len(full_text), chunk_count, session_id or "-",
         )
         return _cors(json.dumps({"text": full_text}), 200)
 
