@@ -9,9 +9,10 @@ interface ChatThreadProps {
   endpoint: string;
   apiKey: string;
   locale: string;
+  onReconfigure?: () => void;
 }
 
-export function ChatThread({ endpoint, apiKey }: ChatThreadProps) {
+export function ChatThread({ endpoint, apiKey, onReconfigure }: ChatThreadProps) {
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [input, setInput] = React.useState("");
   const [loading, setLoading] = React.useState(false);
@@ -85,6 +86,27 @@ export function ChatThread({ endpoint, apiKey }: ChatThreadProps) {
         background: "#fafafa",
       }}
     >
+      {onReconfigure && (
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "6px 12px 0 12px" }}>
+          <button
+            type="button"
+            onClick={onReconfigure}
+            title="Reconfigure endpoint"
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              fontSize: "16px",
+              color: "#888",
+              padding: "2px 6px",
+              borderRadius: "4px",
+            }}
+          >
+            ⚙️
+          </button>
+        </div>
+      )}
+
       <div
         style={{
           flex: 1,

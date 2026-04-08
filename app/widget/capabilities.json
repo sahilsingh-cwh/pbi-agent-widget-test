@@ -1,6 +1,7 @@
 {
   "dataRoles": [],
   "dataViewMappings": [],
+  "supportsEmptyDataView": true,
   "objects": {
     "agentSettings": {
       "displayName": "Agent Configuration",
