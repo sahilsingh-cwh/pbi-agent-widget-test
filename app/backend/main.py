@@ -122,8 +122,9 @@ def chat(request):
         )
 
         agent_input: dict = {"message": message, "user_id": user_id}
-        if session_id:
-            agent_input["session_id"] = session_id
+        # Don't send session_id — let the agent create/manage sessions.
+        # The ADK agent expects sessions created via its session service,
+        # not arbitrary IDs.
 
         ae_request = aiplatform_v1.StreamQueryReasoningEngineRequest(
             name=AGENT_RESOURCE,
