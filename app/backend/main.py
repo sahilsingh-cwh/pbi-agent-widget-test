@@ -122,9 +122,11 @@ def chat(request):
         )
 
         agent_input: dict = {"message": message, "user_id": user_id}
-        # Don't send session_id — let the agent create/manage sessions.
-        # The ADK agent expects sessions created via its session service,
-        # not arbitrary IDs.
+
+        # If the client provides a session_id from a previous turn,
+        # forward it so the agent continues the same conversation.
+        if session_id:
+            agent_input["session_id"] = session_id
 
         ae_request = aiplatform_v1.StreamQueryReasoningEngineRequest(
             name=AGENT_RESOURCE,
@@ -136,10 +138,12 @@ def chat(request):
 
         # Parse SSE chunks from Agent Engine.
         # The agent streams multiple events (state deltas, tool calls,
-        # routing decisions, model responses).  We only want text from
-        # the *final model response* — identified by having
-        # content.parts[].text AND finish_reason == "STOP".
+        # routing decisions, model responses).  We collect:
+        #   - last natural language text (the actual answer / follow-up question)
+        #   - session_id (so the client can continue the conversation)
         last_model_text: str = ""
+        response_session_id: str = ""
+
         for chunk in response:
             raw = None
             try:
@@ -151,6 +155,10 @@ def chat(request):
                 continue
             try:
                 data = json.loads(raw)
+
+                # Capture session_id if present anywhere in the chunk
+                if "session_id" in data and data["session_id"]:
+                    response_session_id = str(data["session_id"])
 
                 # Skip chunks without model content
                 content = data.get("content")
@@ -173,14 +181,26 @@ def chat(request):
                 # keep it.  If it's JSON-only (routing), skip it.
                 if not is_json_block:
                     last_model_text = combined
-                elif data.get("finish_reason") == "STOP" and not is_json_block:
-                    last_model_text = combined
 
             except (json.JSONDecodeError, UnicodeDecodeError, KeyError):
                 continue
 
-        logger.info("Agent replied %d chars", len(last_model_text))
-        return _cors(json.dumps({"text": last_model_text}), 200)
+        # Fall back to the session_id the client sent if we didn't find
+        # one in the response (the agent may not echo it back).
+        final_session_id = response_session_id or session_id
+
+        logger.info(
+            "Agent replied %d chars, session=%s",
+            len(last_model_text),
+            final_session_id or "(none)",
+        )
+        return _cors(
+            json.dumps({
+                "text": last_model_text,
+                "session_id": final_session_id,
+            }),
+            200,
+        )
 
     except Exception as exc:
         logger.error("Agent Engine error: %s", exc)

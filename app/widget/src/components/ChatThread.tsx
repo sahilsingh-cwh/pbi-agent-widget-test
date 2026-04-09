@@ -18,10 +18,10 @@ export function ChatThread({ endpoint, apiKey, onReconfigure }: ChatThreadProps)
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
-  // Stable session ID for multi-turn Agent Engine conversations
-  const sessionIdRef = React.useRef<string>(
-    "pbi-" + Date.now().toString(36) + "-" + Math.random().toString(36).substring(2, 10)
-  );
+  // Session ID for multi-turn conversations.
+  // Starts empty — the backend creates a session on the first call
+  // and returns the session_id, which we reuse for subsequent turns.
+  const sessionIdRef = React.useRef<string>("");
 
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -38,17 +38,22 @@ export function ChatThread({ endpoint, apiKey, onReconfigure }: ChatThreadProps)
       setError(null);
 
       try {
+        const payload: Record<string, string> = {
+          message: text,
+          user_id: "pbi-user",
+        };
+        // Only include session_id if we already have one from a previous turn
+        if (sessionIdRef.current) {
+          payload.session_id = sessionIdRef.current;
+        }
+
         const res = await fetch(endpoint, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             ...(apiKey ? { "X-API-Key": apiKey } : {}),
           },
-          body: JSON.stringify({
-            message: text,
-            user_id: "pbi-user",
-            session_id: sessionIdRef.current,
-          }),
+          body: JSON.stringify(payload),
         });
 
         if (!res.ok) {
@@ -56,6 +61,12 @@ export function ChatThread({ endpoint, apiKey, onReconfigure }: ChatThreadProps)
         }
 
         const data = await res.json();
+
+        // Store the session_id from the backend for subsequent turns
+        if (data.session_id) {
+          sessionIdRef.current = data.session_id;
+        }
+
         const assistantMessage: Message = {
           role: "assistant",
           content: data.text || "No response",
