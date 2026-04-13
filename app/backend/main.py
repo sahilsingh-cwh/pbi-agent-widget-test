@@ -195,6 +195,8 @@ def chat(request):
 
         # ── Step 3: Parse streamed chunks ─────────────────────────────────
         last_model_text: str = ""
+        pending_clarification = None   # track agent's clarification state
+        last_workflow_stage: str = ""   # track workflow stage
 
         for chunk in response:
             raw = None
@@ -208,7 +210,17 @@ def chat(request):
             try:
                 data = json.loads(raw)
 
-                # Skip chunks without model content
+                # ── Track agent state signals for status detection ────────
+                actions = data.get("actions", {})
+                state_delta = actions.get("state_delta", {})
+
+                if "pending:clarification" in state_delta:
+                    pending_clarification = state_delta["pending:clarification"]
+
+                if "workflow:status_stage" in state_delta:
+                    last_workflow_stage = state_delta["workflow:status_stage"] or ""
+
+                # ── Extract text content ──────────────────────────────────
                 content = data.get("content")
                 if not content or not isinstance(content, dict):
                     continue
@@ -229,15 +241,42 @@ def chat(request):
             except (json.JSONDecodeError, UnicodeDecodeError, KeyError):
                 continue
 
+        # ── Determine status ──────────────────────────────────────────────
+        # Priority:
+        # 1. Agent explicitly set pending:clarification → "needs_input"
+        # 2. Workflow reached "output" stage with no clarification → "complete"
+        # 3. Fallback: simple text heuristic (ends with ?, asks to clarify)
+        status = "complete"  # default
+
+        if pending_clarification:
+            status = "needs_input"
+        elif last_workflow_stage == "output":
+            status = "complete"
+        else:
+            # Text-based fallback: check if the response looks like a question
+            text_lower = last_model_text.lower().rstrip()
+            question_phrases = [
+                "please clarify", "please specify", "please provide",
+                "could you", "can you", "what time", "what date",
+                "which ", "what range", "what period",
+            ]
+            if text_lower.endswith("?") or any(p in text_lower for p in question_phrases):
+                status = "needs_input"
+
+        if not last_model_text:
+            status = "error"
+
         logger.info(
-            "Agent replied %d chars, session=%s",
+            "Agent replied %d chars, session=%s, status=%s",
             len(last_model_text),
             session_id or "(none)",
+            status,
         )
         return _cors(
             json.dumps({
                 "text": last_model_text,
                 "session_id": session_id,
+                "status": status,
             }),
             200,
         )
@@ -245,6 +284,11 @@ def chat(request):
     except Exception as exc:
         logger.error("Agent Engine error: %s", exc)
         return _cors(
-            json.dumps({"error": "Agent communication failed. Please try again."}),
+            json.dumps({
+                "text": "",
+                "session_id": session_id,
+                "status": "error",
+                "error": "Agent communication failed. Please try again.",
+            }),
             502,
         )
