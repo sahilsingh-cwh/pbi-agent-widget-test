@@ -125,7 +125,6 @@ def chat(request):
         # ── Step 1: Ensure we have a session_id ───────────────────────────
         # If the client didn't send one, create a new session via the
         # agent's create_session class method.
-        _debug_create_session = None
         if not session_id:
             create_req = aiplatform_v1.QueryReasoningEngineRequest(
                 name=AGENT_RESOURCE,
@@ -133,53 +132,46 @@ def chat(request):
                 class_method="create_session",
             )
             create_resp = client.query_reasoning_engine(create_req)
+            logger.info("create_session raw: %s", str(create_resp)[:500])
 
-            # Capture full debug info about the response
-            resp_str = str(create_resp)
-            resp_type = str(type(create_resp))
-            output_type = ""
-            output_str = ""
-            output_attrs = []
+            # The response output is a MapComposite (dict-like) wrapping
+            # a protobuf Struct.  Try multiple access patterns:
             try:
-                if hasattr(create_resp, "output"):
-                    output = create_resp.output
-                    output_type = str(type(output))
-                    output_str = str(output)
-                    output_attrs = [a for a in dir(output) if not a.startswith("_")]
-            except Exception:
-                pass
+                output = create_resp.output
 
-            _debug_create_session = {
-                "resp_type": resp_type,
-                "resp_str": resp_str[:2000],
-                "output_type": output_type,
-                "output_str": output_str[:2000],
-                "output_attrs": output_attrs[:30],
-            }
+                # Pattern 1: dict-like access (proto-plus auto-unwrap)
+                if hasattr(output, "get"):
+                    sid = output.get("id") or output.get("session_id")
+                    if sid:
+                        session_id = str(sid)
 
-            logger.info("create_session resp_type=%s output_type=%s", resp_type, output_type)
-            logger.info("create_session output_str=%s", output_str[:500])
+                # Pattern 2: access via .pb (raw protobuf)
+                if not session_id and hasattr(output, "pb"):
+                    pb = output.pb
+                    if hasattr(pb, "struct_value"):
+                        fields = pb.struct_value.fields
+                        if "id" in fields:
+                            session_id = fields["id"].string_value
+                        elif "session_id" in fields:
+                            session_id = fields["session_id"].string_value
 
-            # Try to extract from the structured response
-            try:
-                if hasattr(create_resp, "output"):
-                    output = create_resp.output
-                    # It could be a Struct or string value
-                    if hasattr(output, "string_value") and output.string_value:
-                        session_id = output.string_value
-                    elif hasattr(output, "struct_value"):
-                        s = dict(output.struct_value.fields)
-                        if "id" in s:
-                            session_id = s["id"].string_value
-                        elif "session_id" in s:
-                            session_id = s["session_id"].string_value
+                # Pattern 3: iterate keys
+                if not session_id and hasattr(output, "keys"):
+                    for k in output.keys():
+                        if k in ("id", "session_id"):
+                            session_id = str(output[k])
+                            break
+
             except Exception as e:
-                logger.warning("Could not parse create_session response: %s", e)
+                logger.warning("Could not parse create_session output: %s", e)
 
-            # Fallback: try to find session ID via regex in the response string
+            # Pattern 4: regex on the protobuf text representation
             if not session_id:
-                import re as _re
-                match = _re.search(r"['\"]?(?:id|session_id)['\"]?\s*[:=]\s*['\"]([^'\"]+)['\"]", resp_str)
+                resp_str = str(create_resp)
+                match = re.search(
+                    r'key:\s*"id"\s*value\s*\{\s*string_value:\s*"([^"]+)"',
+                    resp_str,
+                )
                 if match:
                     session_id = match.group(1)
 
@@ -246,7 +238,6 @@ def chat(request):
             json.dumps({
                 "text": last_model_text,
                 "session_id": session_id,
-                "_debug_create_session": _debug_create_session,
             }),
             200,
         )
