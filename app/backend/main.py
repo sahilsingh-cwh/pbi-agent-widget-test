@@ -137,12 +137,10 @@ def chat(request):
         response = client.stream_query_reasoning_engine(ae_request)
 
         # Parse SSE chunks from Agent Engine.
-        # The agent streams multiple events (state deltas, tool calls,
-        # routing decisions, model responses).  We collect:
-        #   - last natural language text (the actual answer / follow-up question)
-        #   - session_id (so the client can continue the conversation)
+        # DEBUG: collect all raw chunks to find where session_id lives
         last_model_text: str = ""
         response_session_id: str = ""
+        debug_chunks: list = []
 
         for chunk in response:
             raw = None
@@ -155,6 +153,29 @@ def chat(request):
                 continue
             try:
                 data = json.loads(raw)
+                debug_chunks.append(data)
+
+                # Deep-search for session_id in the chunk
+                def find_session_id(obj, depth=0):
+                    if depth > 5:
+                        return None
+                    if isinstance(obj, dict):
+                        for k, v in obj.items():
+                            if "session" in str(k).lower() and v:
+                                return f"{k}={v}"
+                            found = find_session_id(v, depth + 1)
+                            if found:
+                                return found
+                    elif isinstance(obj, list):
+                        for item in obj:
+                            found = find_session_id(item, depth + 1)
+                            if found:
+                                return found
+                    return None
+
+                session_hit = find_session_id(data)
+                if session_hit:
+                    logger.info("SESSION FOUND in chunk: %s", session_hit)
 
                 # Capture session_id if present anywhere in the chunk
                 if "session_id" in data and data["session_id"]:
@@ -198,6 +219,10 @@ def chat(request):
             json.dumps({
                 "text": last_model_text,
                 "session_id": final_session_id,
+                "_debug_chunk_count": len(debug_chunks),
+                "_debug_chunk_keys": [list(c.keys()) if isinstance(c, dict) else str(type(c)) for c in debug_chunks],
+                "_debug_chunks": debug_chunks,
+            }),
             }),
             200,
         )
