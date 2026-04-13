@@ -114,6 +114,7 @@ def chat(request):
     # ── Call Agent Engine ──────────────────────────────────────────────────
     try:
         from google.cloud import aiplatform_v1
+        from google.protobuf import struct_pb2
 
         client = aiplatform_v1.ReasoningEngineExecutionServiceClient(
             client_options={
@@ -121,10 +122,50 @@ def chat(request):
             }
         )
 
-        agent_input: dict = {"message": message, "user_id": user_id}
+        # ── Step 1: Ensure we have a session_id ───────────────────────────
+        # If the client didn't send one, create a new session via the
+        # agent's create_session class method.
+        if not session_id:
+            create_req = aiplatform_v1.QueryReasoningEngineRequest(
+                name=AGENT_RESOURCE,
+                input={"user_id": user_id},
+                class_method="create_session",
+            )
+            create_resp = client.query_reasoning_engine(create_req)
+            # The response is a google.protobuf.Value; extract session_id
+            resp_str = str(create_resp)
+            logger.info("create_session response: %s", resp_str)
 
-        # If the client provides a session_id from a previous turn,
-        # forward it so the agent continues the same conversation.
+            # Try to extract from the structured response
+            try:
+                if hasattr(create_resp, "output"):
+                    output = create_resp.output
+                    # It could be a Struct or string value
+                    if hasattr(output, "string_value") and output.string_value:
+                        session_id = output.string_value
+                    elif hasattr(output, "struct_value"):
+                        s = dict(output.struct_value.fields)
+                        if "id" in s:
+                            session_id = s["id"].string_value
+                        elif "session_id" in s:
+                            session_id = s["session_id"].string_value
+            except Exception as e:
+                logger.warning("Could not parse create_session response: %s", e)
+
+            # Fallback: try to find session ID via regex in the response string
+            if not session_id:
+                import re as _re
+                match = _re.search(r"['\"]?(?:id|session_id)['\"]?\s*[:=]\s*['\"]([^'\"]+)['\"]", resp_str)
+                if match:
+                    session_id = match.group(1)
+
+            logger.info("Session ID resolved: %s", session_id or "(none)")
+
+        # ── Step 2: Query with session_id ─────────────────────────────────
+        agent_input: dict = {
+            "message": message,
+            "user_id": user_id,
+        }
         if session_id:
             agent_input["session_id"] = session_id
 
@@ -136,11 +177,8 @@ def chat(request):
 
         response = client.stream_query_reasoning_engine(ae_request)
 
-        # Parse SSE chunks from Agent Engine.
-        # DEBUG: collect all raw chunks to find where session_id lives
+        # ── Step 3: Parse streamed chunks ─────────────────────────────────
         last_model_text: str = ""
-        response_session_id: str = ""
-        debug_chunks: list = []
 
         for chunk in response:
             raw = None
@@ -153,33 +191,6 @@ def chat(request):
                 continue
             try:
                 data = json.loads(raw)
-                debug_chunks.append(data)
-
-                # Deep-search for session_id in the chunk
-                def find_session_id(obj, depth=0):
-                    if depth > 5:
-                        return None
-                    if isinstance(obj, dict):
-                        for k, v in obj.items():
-                            if "session" in str(k).lower() and v:
-                                return f"{k}={v}"
-                            found = find_session_id(v, depth + 1)
-                            if found:
-                                return found
-                    elif isinstance(obj, list):
-                        for item in obj:
-                            found = find_session_id(item, depth + 1)
-                            if found:
-                                return found
-                    return None
-
-                session_hit = find_session_id(data)
-                if session_hit:
-                    logger.info("SESSION FOUND in chunk: %s", session_hit)
-
-                # Capture session_id if present anywhere in the chunk
-                if "session_id" in data and data["session_id"]:
-                    response_session_id = str(data["session_id"])
 
                 # Skip chunks without model content
                 content = data.get("content")
@@ -191,37 +202,26 @@ def chat(request):
                 if not text_parts:
                     continue
 
-                # Check if this looks like a structured JSON routing
-                # decision rather than a natural language answer
                 combined = "".join(text_parts).strip()
                 is_json_block = (
                     combined.startswith("{") and combined.endswith("}")
                 )
 
-                # If it's a final model response with natural language,
-                # keep it.  If it's JSON-only (routing), skip it.
                 if not is_json_block:
                     last_model_text = combined
 
             except (json.JSONDecodeError, UnicodeDecodeError, KeyError):
                 continue
 
-        # Fall back to the session_id the client sent if we didn't find
-        # one in the response (the agent may not echo it back).
-        final_session_id = response_session_id or session_id
-
         logger.info(
             "Agent replied %d chars, session=%s",
             len(last_model_text),
-            final_session_id or "(none)",
+            session_id or "(none)",
         )
         return _cors(
             json.dumps({
                 "text": last_model_text,
-                "session_id": final_session_id,
-                "_debug_chunk_count": len(debug_chunks),
-                "_debug_chunk_keys": [list(c.keys()) if isinstance(c, dict) else str(type(c)) for c in debug_chunks],
-                "_debug_chunks": debug_chunks,
+                "session_id": session_id,
             }),
             200,
         )
