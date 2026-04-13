@@ -125,6 +125,7 @@ def chat(request):
         # ── Step 1: Ensure we have a session_id ───────────────────────────
         # If the client didn't send one, create a new session via the
         # agent's create_session class method.
+        _debug_create_session = None
         if not session_id:
             create_req = aiplatform_v1.QueryReasoningEngineRequest(
                 name=AGENT_RESOURCE,
@@ -132,9 +133,32 @@ def chat(request):
                 class_method="create_session",
             )
             create_resp = client.query_reasoning_engine(create_req)
-            # The response is a google.protobuf.Value; extract session_id
+
+            # Capture full debug info about the response
             resp_str = str(create_resp)
-            logger.info("create_session response: %s", resp_str)
+            resp_type = str(type(create_resp))
+            output_type = ""
+            output_str = ""
+            output_attrs = []
+            try:
+                if hasattr(create_resp, "output"):
+                    output = create_resp.output
+                    output_type = str(type(output))
+                    output_str = str(output)
+                    output_attrs = [a for a in dir(output) if not a.startswith("_")]
+            except Exception:
+                pass
+
+            _debug_create_session = {
+                "resp_type": resp_type,
+                "resp_str": resp_str[:2000],
+                "output_type": output_type,
+                "output_str": output_str[:2000],
+                "output_attrs": output_attrs[:30],
+            }
+
+            logger.info("create_session resp_type=%s output_type=%s", resp_type, output_type)
+            logger.info("create_session output_str=%s", output_str[:500])
 
             # Try to extract from the structured response
             try:
@@ -222,6 +246,7 @@ def chat(request):
             json.dumps({
                 "text": last_model_text,
                 "session_id": session_id,
+                "_debug_create_session": _debug_create_session,
             }),
             200,
         )
