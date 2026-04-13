@@ -223,7 +223,6 @@ def chat(request):
                 "_debug_chunk_keys": [list(c.keys()) if isinstance(c, dict) else str(type(c)) for c in debug_chunks],
                 "_debug_chunks": debug_chunks,
             }),
-            }),
             200,
         )
 
